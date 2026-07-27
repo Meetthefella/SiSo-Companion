@@ -82,3 +82,39 @@ export interface OcrCandidate {
   matchType: 'exact' | 'substitution' | 'none';
   sourceFile?: string;
 }
+
+export interface ManageBookingRow {
+  id: string;
+  audit_session_id: string;
+  source_row: number | null;
+  asset_barcode: string;
+  state: string;
+  booked_by: string | null;
+  booked_by_email: string | null;
+  from_date: string | null;
+  to_date: string | null;
+  asset_name: string | null;
+  serial: string | null;
+  course: string | null;
+  booking_id: string | null;
+  original_row: Record<string, string>;
+  created_at: string;
+}
+
+export type KitPhysicalState = 'present' | 'absent';
+export type KitComparisonStatus = 'reconciled' | 'siso_update' | 'missing' | 'second_pass';
+
+export interface KitCheck {
+  id: string;
+  audit_session_id: string;
+  kit_barcode: string;
+  kit_code: string;
+  kit_group: string;
+  physical_state: KitPhysicalState;
+  booking_state: string | null;
+  comparison_status: KitComparisonStatus;
+  detail: string | null;
+  checked_by: string;
+  checked_at: string;
+  updated_at: string;
+}
