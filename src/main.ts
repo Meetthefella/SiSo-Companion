@@ -26,6 +26,7 @@ let realtimeDetail = '';
 let lastDebugError = '';
 let authUserId = '';
 let debugPressTimer: number | null = null;
+let initialSessionResolved = false;
 
 const esc=(v:unknown)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const resultFor=(id:string)=>results.find(r=>r.inventory_asset_id===id);
@@ -36,7 +37,19 @@ function uniqueKits(){const map=new Map<string,{barcode:string;group:string;numb
 function bookingFor(barcode:string){return bookingRows.filter(r=>cleanBarcode(r.asset_barcode)===barcode);}
 function isOutState(state:string){return !/^(available|returned|complete|completed|cancelled|canceled|in store)$/i.test(state.trim());}
 
-async function loadSessions(){const {data,error}=await supabase.from('audit_sessions').select('*').order('created_at',{ascending:false});if(error)throw error;sessions=data??[];const stored=localStorage.getItem('siso-session');currentSession=sessions.find(s=>s.id===stored)??sessions.find(s=>s.status==='open')??sessions[0]??null;}
+async function loadSessions(){
+ const {data,error}=await supabase.from('audit_sessions').select('*').order('created_at',{ascending:false});
+ if(error)throw error;
+ sessions=data??[];
+ const latestOpen=sessions.find(s=>s.status==='open')??sessions[0]??null;
+ // On every fresh app launch, open the newest reconciliation rather than a stale
+ // device-local choice. During the current launch, preserve an explicitly selected
+ // reconciliation across realtime refreshes.
+ if(!initialSessionResolved){currentSession=latestOpen;initialSessionResolved=true;}
+ else if(currentSession){currentSession=sessions.find(s=>s.id===currentSession!.id)??latestOpen;}
+ else currentSession=latestOpen;
+ if(currentSession)localStorage.setItem('siso-session',currentSession.id);else localStorage.removeItem('siso-session');
+}
 async function loadSessionData(){if(!currentSession){assets=[];results=[];bulkCounts=[];bookingRows=[];kitCatalog=[];kitChecks=[];return;}const [a,r,b,m,c,k]=await Promise.all([
   supabase.from('inventory_assets').select('*').eq('audit_session_id',currentSession.id).order('source_row'),
   supabase.from('audit_results').select('*').eq('audit_session_id',currentSession.id),
@@ -124,7 +137,7 @@ function bindEvents(){
  document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(b=>b.addEventListener('click',()=>{activeView=b.dataset.view as typeof activeView;render();}));
  document.querySelectorAll<HTMLButtonElement>('[data-queue]').forEach(b=>b.addEventListener('click',()=>{queueFilter=b.dataset.queue as QueueStatus;activeView='queue';render();}));
  document.querySelector('#back-dashboard')?.addEventListener('click',()=>{activeView='dashboard';render();});
- document.querySelector('#create-session')?.addEventListener('click',async()=>{const name=(document.querySelector<HTMLInputElement>('#new-session-name')?.value??'').trim();if(!name)return;const {data,error}=await supabase.from('audit_sessions').insert({name,created_by:technician}).select().single();if(error)alert(error.message);else{localStorage.setItem('siso-session',data.id);await refresh();}});
+ document.querySelector('#create-session')?.addEventListener('click',async()=>{const name=(document.querySelector<HTMLInputElement>('#new-session-name')?.value??'').trim();if(!name)return;const {data,error}=await supabase.from('audit_sessions').insert({name,created_by:technician}).select().single();if(error)alert(error.message);else{currentSession=data;localStorage.setItem('siso-session',data.id);await refresh();}});
  document.querySelector('#import-csv')?.addEventListener('click',async()=>{const file=document.querySelector<HTMLInputElement>('#csv-file')?.files?.[0],status=document.querySelector<HTMLDivElement>('#import-status');if(!file||!currentSession||!status)return;status.classList.remove('hidden');status.textContent='Importing…';try{const r=await importInventoryCsv(file,currentSession.id);status.textContent=`Imported ${r.imported} serialised assets and ${r.operationalKits} operational kits; skipped ${r.skippedNoSerial} rows without serials; ${r.duplicateSerials} duplicate serial rows.`;await loadSessionData();render();}catch(e){lastDebugError=e instanceof Error?e.message:String(e);status.textContent=lastDebugError;}});
  document.querySelector('#import-bookings')?.addEventListener('click',async()=>{const file=document.querySelector<HTMLInputElement>('#bookings-file')?.files?.[0],status=document.querySelector<HTMLDivElement>('#bookings-status');if(!file||!currentSession||!status)return;status.classList.remove('hidden');status.textContent='Importing current bookings…';try{const r=await importManageBookingsCsv(file,currentSession.id);status.textContent=`Imported ${r.imported} booking rows covering ${r.uniqueBarcodes} assets.`;await loadSessionData();render();}catch(e){lastDebugError=e instanceof Error?e.message:String(e);status.textContent=lastDebugError;}});
  document.querySelectorAll<HTMLButtonElement>('[data-kit-filter]').forEach(b=>b.addEventListener('click',()=>{kitStatusFilter=b.dataset.kitFilter as KitBoardFilter;render();}));

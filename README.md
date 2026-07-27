@@ -60,3 +60,12 @@ The Stock import now records operational kit barcode families independently of S
 - Completed tiles open a detail view showing physical state, Manage Bookings state, technician and time.
 - A checked kit can be re-opened for correction.
 - Run `supabase/migrations/005_collected_kit_status.sql` before deploying this build.
+
+
+## v0.2.6 expanded operational pools and latest reconciliation
+
+- The kit-board pool catalogue now covers every BMS prefix listed on Sheet1 of the store rota: `TSC`, `UGS`, `TUG`, `SON`, `R50`, `DOC`, `DJI`, `INT`, `UG`, `NIK`, `INV`, `SPE`, `PKT`, and `HHR`.
+- `CAN` is also included so all 15 headphone cans in the current Stock export appear as tiles.
+- The app deliberately does not turn every BMS-prefixed stock item into a tile, because many BMS prefixes identify individual components rather than operational loan pools.
+- On each fresh phone/PWA launch, the newest open reconciliation is selected automatically. A reconciliation explicitly selected during the current launch remains selected during realtime refreshes.
+- No Supabase migration is required for v0.2.6. Re-import Stock.csv to rebuild the operational kit catalogue with the expanded pool list.

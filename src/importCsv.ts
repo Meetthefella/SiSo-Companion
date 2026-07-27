@@ -11,7 +11,14 @@ export interface ImportReport {
 }
 
 
-const OPERATIONAL_KIT_GROUPS = new Set(['UGS', 'TUG', 'INT', 'DOC', 'PKT', 'TSC']);
+// Operational loan pools listed on the store's Sheet1 kit rota, plus CAN headphones.
+// This is intentionally a pool-prefix catalogue rather than every BMS barcode: the
+// stock export also uses BMS prefixes for many individual components that should
+// not become kit-board tiles.
+const OPERATIONAL_KIT_GROUPS = new Set([
+  'TSC', 'UGS', 'TUG', 'SON', 'R50', 'DOC', 'DJI', 'INT',
+  'UG', 'NIK', 'INV', 'SPE', 'PKT', 'HHR', 'CAN',
+]);
 
 function operationalKit(barcodeValue: string) {
   const barcode = barcodeValue.replace(/\s+/g, '').toUpperCase();
