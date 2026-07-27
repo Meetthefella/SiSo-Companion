@@ -118,3 +118,18 @@ export interface KitCheck {
   checked_at: string;
   updated_at: string;
 }
+
+
+export interface KitCatalogEntry {
+  id: string;
+  audit_session_id: string;
+  source_row: number | null;
+  kit_barcode: string;
+  kit_code: string;
+  kit_group: string;
+  asset_name: string | null;
+  category: string | null;
+  original_row: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}

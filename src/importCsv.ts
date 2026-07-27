@@ -6,7 +6,23 @@ export interface ImportReport {
   imported: number;
   skippedNoSerial: number;
   duplicateSerials: number;
+  operationalKits: number;
   errors: string[];
+}
+
+
+const OPERATIONAL_KIT_GROUPS = new Set(['UGS', 'TUG', 'INT', 'DOC', 'PKT', 'TSC']);
+
+function operationalKit(barcodeValue: string) {
+  const barcode = barcodeValue.replace(/\s+/g, '').toUpperCase();
+  const match = barcode.match(/^BMS([A-Z]+?)(\d+)$/);
+  if (!match || !OPERATIONAL_KIT_GROUPS.has(match[1]!)) return null;
+  return {
+    barcode,
+    group: match[1]!,
+    number: match[2]!,
+    code: `${match[1]} ${Number(match[2])}`,
+  };
 }
 
 function pick(row: Record<string, unknown>, ...names: string[]): string {
@@ -30,10 +46,29 @@ export async function parseInventoryCsv(file: File, auditSessionId: string) {
     });
   });
 
+  const sourceRows = parsed.data as Record<string, string>[];
+  const kitMap = new Map<string, Record<string, unknown>>();
+  for (const [index, row] of sourceRows.entries()) {
+    const barcode = pick(row, 'Barcodes', 'Barcode', 'barcode');
+    const kit = operationalKit(barcode);
+    if (!kit || kitMap.has(kit.barcode)) continue;
+    const parsedSourceRow = Number(pick(row, '#'));
+    kitMap.set(kit.barcode, {
+      audit_session_id: auditSessionId,
+      source_row: Number.isFinite(parsedSourceRow) && parsedSourceRow > 0 ? parsedSourceRow : index + 1,
+      kit_barcode: kit.barcode,
+      kit_code: kit.code,
+      kit_group: kit.group,
+      asset_name: pick(row, 'Asset Name', 'Original Name', 'Name') || null,
+      category: pick(row, 'Category') || null,
+      original_row: row,
+    });
+  }
+
   const seen = new Set<string>();
   let duplicateSerials = 0;
 
-  const assets = (parsed.data as Record<string, string>[]).flatMap(
+  const assets = sourceRows.flatMap(
     (row: Record<string, string>, index: number) => {
       const serial = pick(row, 'Serial', 'serial');
       const normalized = normalizeSerial(serial);
@@ -73,6 +108,7 @@ export async function parseInventoryCsv(file: File, auditSessionId: string) {
 
   return {
     assets,
+    operationalKits: [...kitMap.values()],
     rows: parsed.data.length,
     duplicateSerials,
     errors: parsed.errors.map(
@@ -94,6 +130,19 @@ export async function importInventoryCsv(
   auditSessionId: string,
 ): Promise<ImportReport> {
   const parsed = await parseInventoryCsv(file, auditSessionId);
+
+  const { error: clearKitError } = await supabase
+    .from('kit_catalog')
+    .delete()
+    .eq('audit_session_id', auditSessionId);
+  if (clearKitError) throw new Error(`Could not refresh operational kit catalogue: ${clearKitError.message}`);
+
+  for (let index = 0; index < parsed.operationalKits.length; index += 300) {
+    const { error } = await supabase
+      .from('kit_catalog')
+      .insert(parsed.operationalKits.slice(index, index + 300));
+    if (error) throw new Error(`Operational kit catalogue import failed: ${error.message}`);
+  }
 
   const { data: existingRows, error: existingError } = await supabase
     .from('inventory_assets')
@@ -155,6 +204,7 @@ export async function importInventoryCsv(
     imported: parsed.assets.length,
     skippedNoSerial: parsed.rows - parsed.assets.length,
     duplicateSerials: parsed.duplicateSerials,
+    operationalKits: parsed.operationalKits.length,
     errors: parsed.errors,
   };
 }

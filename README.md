@@ -46,3 +46,8 @@ The pilot includes a hidden diagnostics panel for store testing. Open it by eith
 - adding `#debug` to the deployed URL.
 
 It reports Supabase authentication, realtime subscription state, imported stock and Manage Bookings counts, duplicate/scientific-notation serials, OCR candidate outcomes, queue totals, kit-check totals, and the latest captured error. It is intentionally absent from the technician navigation.
+
+
+## v0.2.4 operational kit catalogue
+
+The Stock import now records operational kit barcode families independently of SiSo's asset type and independently of whether the row has a serial number. The pilot allow-list is `UGS`, `TUG`, `INT`, `DOC`, `PKT`, and `TSC`, so PKT and TSC items appear on the Kit Presence board even when SiSo does not label them as kits. Run migration `004_operational_kit_catalog.sql` before deploying this build, then re-import Stock.csv once to populate the catalogue.

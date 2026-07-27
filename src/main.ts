@@ -5,12 +5,12 @@ import { importManageBookingsCsv } from './importBookings';
 import { recogniseFiles } from './ocr';
 import { normalizeSerial, serialVariants } from './serial';
 import { augmentedRows, bulkBarcodeRows, downloadCsv } from './exportCsv';
-import type { AuditResult, AuditSession, BulkCount, InventoryAsset, KitCheck, ManageBookingRow, OcrCandidate, QueueStatus, ReconcileOutcome } from './types';
+import type { AuditResult, AuditSession, BulkCount, InventoryAsset, KitCatalogEntry, KitCheck, ManageBookingRow, OcrCandidate, QueueStatus, ReconcileOutcome } from './types';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 let sessions: AuditSession[] = [], currentSession: AuditSession | null = null;
 let assets: InventoryAsset[] = [], results: AuditResult[] = [], bulkCounts: BulkCount[] = [];
-let bookingRows: ManageBookingRow[] = [], kitChecks: KitCheck[] = [], candidates: OcrCandidate[] = [];
+let bookingRows: ManageBookingRow[] = [], kitCatalog: KitCatalogEntry[] = [], kitChecks: KitCheck[] = [], candidates: OcrCandidate[] = [];
 let technician = localStorage.getItem('siso-technician') ?? '';
 let activeView: 'dashboard'|'kits'|'reconcile'|'bulk'|'export'|'queue'|'debug' = location.hash === '#debug' ? 'debug' : 'dashboard';
 let queueFilter: QueueStatus = 'second_pass';
@@ -29,20 +29,21 @@ const resultFor=(id:string)=>results.find(r=>r.inventory_asset_id===id);
 const cleanBarcode=(v:string|null|undefined)=>String(v??'').replace(/\s+/g,'').toUpperCase();
 function kitParts(barcode:string|null|undefined){const b=cleanBarcode(barcode);const m=b.match(/^BMS([A-Z]+?)(\d+)$/);return m?{barcode:b,group:m[1]!,number:m[2]!,code:`${m[1]} ${Number(m[2])}`} : null;}
 function counts(){const c:Record<QueueStatus,number>={not_checked:assets.length,reconciled:0,second_pass:0,further_action:0};for(const r of results){c[r.queue_status]++;c.not_checked--;}return c;}
-function uniqueKits(){const map=new Map<string,{barcode:string;group:string;number:string;code:string;asset:InventoryAsset}>();for(const a of assets){const p=kitParts(a.barcode);if(p&&!map.has(p.barcode))map.set(p.barcode,{...p,asset:a});}return [...map.values()].sort((a,b)=>a.group.localeCompare(b.group)||Number(a.number)-Number(b.number));}
+function uniqueKits(){const map=new Map<string,{barcode:string;group:string;number:string;code:string;assetName:string|null}>();for(const row of kitCatalog){const p=kitParts(row.kit_barcode);if(p&&!map.has(p.barcode))map.set(p.barcode,{...p,assetName:row.asset_name});}for(const a of assets){const p=kitParts(a.barcode);if(p&&!map.has(p.barcode))map.set(p.barcode,{...p,assetName:a.asset_name});}for(const booking of bookingRows){const p=kitParts(booking.asset_barcode);if(p&&!map.has(p.barcode))map.set(p.barcode,{...p,assetName:booking.asset_name});}return [...map.values()].sort((a,b)=>a.group.localeCompare(b.group)||Number(a.number)-Number(b.number));}
 function bookingFor(barcode:string){return bookingRows.filter(r=>cleanBarcode(r.asset_barcode)===barcode);}
 function isOutState(state:string){return !/^(available|returned|complete|completed|cancelled|canceled|in store)$/i.test(state.trim());}
 
 async function loadSessions(){const {data,error}=await supabase.from('audit_sessions').select('*').order('created_at',{ascending:false});if(error)throw error;sessions=data??[];const stored=localStorage.getItem('siso-session');currentSession=sessions.find(s=>s.id===stored)??sessions.find(s=>s.status==='open')??sessions[0]??null;}
-async function loadSessionData(){if(!currentSession){assets=[];results=[];bulkCounts=[];bookingRows=[];kitChecks=[];return;}const [a,r,b,m,k]=await Promise.all([
+async function loadSessionData(){if(!currentSession){assets=[];results=[];bulkCounts=[];bookingRows=[];kitCatalog=[];kitChecks=[];return;}const [a,r,b,m,c,k]=await Promise.all([
   supabase.from('inventory_assets').select('*').eq('audit_session_id',currentSession.id).order('source_row'),
   supabase.from('audit_results').select('*').eq('audit_session_id',currentSession.id),
   supabase.from('bulk_counts').select('*').eq('audit_session_id',currentSession.id).order('created_at',{ascending:false}),
   supabase.from('manage_booking_rows').select('*').eq('audit_session_id',currentSession.id),
+  supabase.from('kit_catalog').select('*').eq('audit_session_id',currentSession.id).order('kit_group').order('kit_code'),
   supabase.from('kit_checks').select('*').eq('audit_session_id',currentSession.id)
 ]);
- for(const x of [a,r,b,m,k])if(x.error)throw x.error;
- assets=a.data??[];results=r.data??[];bulkCounts=b.data??[];bookingRows=m.data??[];kitChecks=k.data??[];
+ for(const x of [a,r,b,m,c,k])if(x.error)throw x.error;
+ assets=a.data??[];results=r.data??[];bulkCounts=b.data??[];bookingRows=m.data??[];kitCatalog=c.data??[];kitChecks=k.data??[];
  const groups=[...new Set(uniqueKits().map(k=>k.group))];if(!selectedKitGroup&&groups.length)selectedKitGroup=groups[0]!;
 }
 
@@ -59,7 +60,7 @@ function debugHtml(c:Record<QueueStatus,number>){
  return `<section class="card debug-card"><div class="row"><div><h2>Developer diagnostics</h2><p class="muted">Hidden pilot support panel</p></div><button id="close-debug" class="secondary">Close</button></div>
  <div class="grid metrics debug-metrics">${metric('Stock rows',assets.length,'not_checked')}${metric('Bookings',bookingRows.length,'not_checked')}${metric('Results',results.length,'not_checked')}${metric('Bulk counts',bulkCounts.length,'not_checked')}</div>
  <h3>Connection</h3><dl class="debug-list"><div><dt>Supabase authentication</dt><dd>${authUserId?`Connected · ${esc(authUserId.slice(0,8))}…`:'No active user'}</dd></div><div><dt>Realtime</dt><dd><span class="badge ${realtimeStatus==='subscribed'?'ok':realtimeStatus==='error'?'bad':'warn'}">${esc(realtimeStatus)}</span> ${esc(realtimeDetail)}</dd></div><div><dt>Current reconciliation</dt><dd>${esc(currentSession?.name??'None')} ${currentSession?`· ${esc(currentSession.id.slice(0,8))}…`:''}</dd></div><div><dt>Network</dt><dd>${navigator.onLine?'Online':'Offline'}</dd></div></dl>
- <h3>Import health</h3><div class="mini-metrics"><span><strong>${assets.length}</strong> serialised rows</span><span><strong>${scientific.length}</strong> scientific notation</span><span><strong>${duplicates.length}</strong> duplicate serial groups</span><span><strong>${uniqueKits().length}</strong> derived kits</span></div>
+ <h3>Import health</h3><div class="mini-metrics"><span><strong>${assets.length}</strong> serialised rows</span><span><strong>${scientific.length}</strong> scientific notation</span><span><strong>${duplicates.length}</strong> duplicate serial groups</span><span><strong>${uniqueKits().length}</strong> operational kits</span></div>
  ${scientific.length?`<details><summary>Scientific-notation serials (${scientific.length})</summary>${scientific.slice(0,50).map(a=>`<div class="debug-row"><strong>${esc(a.serial)}</strong><span>${esc(a.asset_name)} · ${esc(a.bag_label??a.barcode??'No kit')}</span></div>`).join('')}${scientific.length>50?`<p class="muted">Showing first 50.</p>`:''}</details>`:''}
  ${duplicates.length?`<details><summary>Duplicate serial groups (${duplicates.length})</summary>${duplicates.slice(0,30).map(([serial,rows])=>`<div class="debug-row"><strong>${esc(serial)} × ${rows.length}</strong><span>${rows.map(a=>esc(a.bag_label??a.barcode??a.asset_name)).join(' · ')}</span></div>`).join('')}${duplicates.length>30?`<p class="muted">Showing first 30.</p>`:''}</details>`:''}
  <h3>OCR</h3><div class="mini-metrics"><span><strong>${candidates.length}</strong> candidates</span><span><strong>${ocrExact}</strong> exact</span><span><strong>${ocrSub}</strong> substitutions</span><span><strong>${ocrNone}</strong> unmatched</span></div>
@@ -111,7 +112,7 @@ function bindEvents(){
  document.querySelectorAll<HTMLButtonElement>('[data-queue]').forEach(b=>b.addEventListener('click',()=>{queueFilter=b.dataset.queue as QueueStatus;activeView='queue';render();}));
  document.querySelector('#back-dashboard')?.addEventListener('click',()=>{activeView='dashboard';render();});
  document.querySelector('#create-session')?.addEventListener('click',async()=>{const name=(document.querySelector<HTMLInputElement>('#new-session-name')?.value??'').trim();if(!name)return;const {data,error}=await supabase.from('audit_sessions').insert({name,created_by:technician}).select().single();if(error)alert(error.message);else{localStorage.setItem('siso-session',data.id);await refresh();}});
- document.querySelector('#import-csv')?.addEventListener('click',async()=>{const file=document.querySelector<HTMLInputElement>('#csv-file')?.files?.[0],status=document.querySelector<HTMLDivElement>('#import-status');if(!file||!currentSession||!status)return;status.classList.remove('hidden');status.textContent='Importing…';try{const r=await importInventoryCsv(file,currentSession.id);status.textContent=`Imported ${r.imported}; skipped ${r.skippedNoSerial} without serials; ${r.duplicateSerials} duplicate serial rows.`;await loadSessionData();render();}catch(e){lastDebugError=e instanceof Error?e.message:String(e);status.textContent=lastDebugError;}});
+ document.querySelector('#import-csv')?.addEventListener('click',async()=>{const file=document.querySelector<HTMLInputElement>('#csv-file')?.files?.[0],status=document.querySelector<HTMLDivElement>('#import-status');if(!file||!currentSession||!status)return;status.classList.remove('hidden');status.textContent='Importing…';try{const r=await importInventoryCsv(file,currentSession.id);status.textContent=`Imported ${r.imported} serialised assets and ${r.operationalKits} operational kits; skipped ${r.skippedNoSerial} rows without serials; ${r.duplicateSerials} duplicate serial rows.`;await loadSessionData();render();}catch(e){lastDebugError=e instanceof Error?e.message:String(e);status.textContent=lastDebugError;}});
  document.querySelector('#import-bookings')?.addEventListener('click',async()=>{const file=document.querySelector<HTMLInputElement>('#bookings-file')?.files?.[0],status=document.querySelector<HTMLDivElement>('#bookings-status');if(!file||!currentSession||!status)return;status.classList.remove('hidden');status.textContent='Importing current bookings…';try{const r=await importManageBookingsCsv(file,currentSession.id);status.textContent=`Imported ${r.imported} booking rows covering ${r.uniqueBarcodes} assets.`;await loadSessionData();render();}catch(e){lastDebugError=e instanceof Error?e.message:String(e);status.textContent=lastDebugError;}});
  document.querySelectorAll<HTMLButtonElement>('[data-kit-group]').forEach(b=>b.addEventListener('click',()=>{selectedKitGroup=b.dataset.kitGroup??'';selectedPresentKits.clear();render();}));
  document.querySelectorAll<HTMLButtonElement>('[data-kit]').forEach(b=>b.addEventListener('click',()=>{const code=b.dataset.kit!;selectedPresentKits.has(code)?selectedPresentKits.delete(code):selectedPresentKits.add(code);render();}));
