@@ -51,3 +51,12 @@ It reports Supabase authentication, realtime subscription state, imported stock 
 ## v0.2.4 operational kit catalogue
 
 The Stock import now records operational kit barcode families independently of SiSo's asset type and independently of whether the row has a serial number. The pilot allow-list is `UGS`, `TUG`, `INT`, `DOC`, `PKT`, and `TSC`, so PKT and TSC items appear on the Kit Presence board even when SiSo does not label them as kits. Run migration `004_operational_kit_catalog.sql` before deploying this build, then re-import Stock.csv once to populate the catalogue.
+
+## v0.2.5 live operational kit board
+
+- All operational kit families are shown together on the kit board.
+- `Collected` is a distinct blue status and is no longer included in `Reconciled`.
+- Summary status cards filter the visible tiles.
+- Completed tiles open a detail view showing physical state, Manage Bookings state, technician and time.
+- A checked kit can be re-opened for correction.
+- Run `supabase/migrations/005_collected_kit_status.sql` before deploying this build.

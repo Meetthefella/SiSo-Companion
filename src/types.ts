@@ -102,7 +102,7 @@ export interface ManageBookingRow {
 }
 
 export type KitPhysicalState = 'present' | 'absent';
-export type KitComparisonStatus = 'reconciled' | 'siso_update' | 'missing' | 'second_pass';
+export type KitComparisonStatus = 'reconciled' | 'collected' | 'siso_update' | 'missing' | 'second_pass';
 
 export interface KitCheck {
   id: string;
