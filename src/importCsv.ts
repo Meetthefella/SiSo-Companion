@@ -2,12 +2,26 @@ import Papa from 'papaparse';
 import { supabase } from './supabase';
 import { deriveKitLabel, normalizeSerial } from './serial';
 
+export interface StockImportDiagnostics {
+  stockRows: number;
+  rowsWithBarcode: number;
+  extractedBarcodes: number;
+  validBarcodes: number;
+  uniqueBarcodes: number;
+  duplicateBarcodeOccurrences: number;
+  invalidBarcodeOccurrences: number;
+  importedAssets: number;
+  barcodeFamilies: number;
+  importedAt: string;
+}
+
 export interface ImportReport {
   imported: number;
   skippedNoSerial: number;
   duplicateSerials: number;
   operationalKits: number;
   barcodeFamilies: number;
+  diagnostics: StockImportDiagnostics;
   errors: string[];
 }
 
@@ -65,13 +79,30 @@ export async function parseInventoryCsv(file: File, auditSessionId: string) {
 
   const sourceRows = parsed.data as Record<string, string>[];
   const kitMap = new Map<string, Record<string, unknown>>();
+  let rowsWithBarcode = 0;
+  let extractedBarcodes = 0;
+  let validBarcodes = 0;
+  let duplicateBarcodeOccurrences = 0;
+  let invalidBarcodeOccurrences = 0;
+
   for (const [index, row] of sourceRows.entries()) {
     const barcodes = extractBarcodes(pick(row, 'Barcodes', 'Barcode', 'barcode'));
+    if (barcodes.length > 0) rowsWithBarcode += 1;
+    extractedBarcodes += barcodes.length;
     const parsedSourceRow = Number(pick(row, '#'));
 
     for (const barcode of barcodes) {
       const kit = operationalKit(barcode);
-      if (!kit || kitMap.has(kit.barcode)) continue;
+      if (!kit) {
+        invalidBarcodeOccurrences += 1;
+        continue;
+      }
+
+      validBarcodes += 1;
+      if (kitMap.has(kit.barcode)) {
+        duplicateBarcodeOccurrences += 1;
+        continue;
+      }
 
       kitMap.set(kit.barcode, {
         audit_session_id: auditSessionId,
@@ -127,11 +158,29 @@ export async function parseInventoryCsv(file: File, auditSessionId: string) {
     },
   );
 
+  const operationalKits = [...kitMap.values()];
+  const barcodeFamilies = new Set(operationalKits.map((row) => String(row.kit_group))).size;
+  const diagnostics: StockImportDiagnostics = {
+    stockRows: sourceRows.length,
+    rowsWithBarcode,
+    extractedBarcodes,
+    validBarcodes,
+    uniqueBarcodes: operationalKits.length,
+    duplicateBarcodeOccurrences,
+    invalidBarcodeOccurrences,
+    importedAssets: assets.length,
+    barcodeFamilies,
+    importedAt: new Date().toISOString(),
+  };
+
+  console.table(diagnostics);
+
   return {
     assets,
-    operationalKits: [...kitMap.values()],
+    operationalKits,
     rows: parsed.data.length,
     duplicateSerials,
+    diagnostics,
     errors: parsed.errors.map(
       (error: { row?: number; message: string }) =>
         `Row ${error.row ?? '?'}: ${error.message}`,
@@ -226,7 +275,8 @@ export async function importInventoryCsv(
     skippedNoSerial: parsed.rows - parsed.assets.length,
     duplicateSerials: parsed.duplicateSerials,
     operationalKits: parsed.operationalKits.length,
-    barcodeFamilies: new Set(parsed.operationalKits.map((row) => String(row.kit_group))).size,
+    barcodeFamilies: parsed.diagnostics.barcodeFamilies,
+    diagnostics: parsed.diagnostics,
     errors: parsed.errors,
   };
 }
