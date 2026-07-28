@@ -7,6 +7,7 @@ export interface ImportReport {
   skippedNoSerial: number;
   duplicateSerials: number;
   operationalKits: number;
+  barcodeFamilies: number;
   errors: string[];
 }
 
@@ -225,6 +226,7 @@ export async function importInventoryCsv(
     skippedNoSerial: parsed.rows - parsed.assets.length,
     duplicateSerials: parsed.duplicateSerials,
     operationalKits: parsed.operationalKits.length,
+    barcodeFamilies: new Set(parsed.operationalKits.map((row) => String(row.kit_group))).size,
     errors: parsed.errors,
   };
 }
