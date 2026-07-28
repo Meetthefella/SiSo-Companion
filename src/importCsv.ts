@@ -10,7 +10,8 @@ export interface StockImportDiagnostics {
   uniqueBarcodes: number;
   duplicateBarcodeOccurrences: number;
   invalidBarcodeOccurrences: number;
-  importedAssets: number;
+  importedBookableItems: number;
+  serialisedAssetRows: number;
   barcodeFamilies: number;
   importedAt: string;
 }
@@ -168,11 +169,11 @@ export async function parseInventoryCsv(file: File, auditSessionId: string) {
     uniqueBarcodes: operationalKits.length,
     duplicateBarcodeOccurrences,
     invalidBarcodeOccurrences,
-    importedAssets: assets.length,
+    importedBookableItems: operationalKits.length,
+    serialisedAssetRows: assets.length,
     barcodeFamilies,
     importedAt: new Date().toISOString(),
   };
-
   console.table(diagnostics);
 
   return {
@@ -201,74 +202,74 @@ export async function importInventoryCsv(
 ): Promise<ImportReport> {
   const parsed = await parseInventoryCsv(file, auditSessionId);
 
-  const { error: clearKitError } = await supabase
-    .from('kit_catalog')
-    .delete()
-    .eq('audit_session_id', auditSessionId);
-  if (clearKitError) throw new Error(`Could not refresh operational kit catalogue: ${clearKitError.message}`);
-
-  for (let index = 0; index < parsed.operationalKits.length; index += 300) {
-    const { error } = await supabase
+    const { error: clearKitError } = await supabase
       .from('kit_catalog')
-      .insert(parsed.operationalKits.slice(index, index + 300));
-    if (error) throw new Error(`Operational kit catalogue import failed: ${error.message}`);
-  }
+      .delete()
+      .eq('audit_session_id', auditSessionId);
+    if (clearKitError) throw new Error(`Could not refresh operational kit catalogue: ${clearKitError.message}`);
 
-  const { data: existingRows, error: existingError } = await supabase
-    .from('inventory_assets')
-    .select('id,source_row')
-    .eq('audit_session_id', auditSessionId);
-
-  if (existingError) {
-    throw new Error(`Could not inspect existing inventory: ${existingError.message}`);
-  }
-
-  const existingBySourceRow = new Map<number, string>();
-  for (const row of existingRows ?? []) {
-    if (typeof row.source_row === 'number') {
-      existingBySourceRow.set(row.source_row, row.id);
+    for (let index = 0; index < parsed.operationalKits.length; index += 300) {
+      const { error } = await supabase
+        .from('kit_catalog')
+        .insert(parsed.operationalKits.slice(index, index + 300));
+      if (error) throw new Error(`Operational kit catalogue import failed: ${error.message}`);
     }
-  }
 
-  const rowsToInsert: typeof parsed.assets = [];
-  const rowsToUpdate: Array<{ id: string; asset: (typeof parsed.assets)[number] }> = [];
-
-  for (const asset of parsed.assets) {
-    const existingId = existingBySourceRow.get(asset.source_row);
-    if (existingId) {
-      rowsToUpdate.push({ id: existingId, asset });
-    } else {
-      rowsToInsert.push(asset);
-    }
-  }
-
-  const chunkSize = 300;
-  for (let index = 0; index < rowsToInsert.length; index += chunkSize) {
-    const { error } = await supabase
+    const { data: existingRows, error: existingError } = await supabase
       .from('inventory_assets')
-      .insert(rowsToInsert.slice(index, index + chunkSize));
-
-    if (error) {
-      throw new Error(`Inventory import failed: ${error.message}`);
-    }
-  }
-
-  // Updates are intentionally explicit rather than upserts, so no unique or
-  // exclusion constraint is required. Re-imports are uncommon and this keeps the
-  // initial pilot safe and predictable.
-  for (const row of rowsToUpdate) {
-    const { error } = await supabase
-      .from('inventory_assets')
-      .update(row.asset)
-      .eq('id', row.id)
+      .select('id,source_row')
       .eq('audit_session_id', auditSessionId);
 
-    if (error) {
-      throw new Error(
-        `Inventory row ${row.asset.source_row} could not be updated: ${error.message}`,
-      );
+    if (existingError) {
+      throw new Error(`Could not inspect existing inventory: ${existingError.message}`);
     }
-  }
+
+    const existingBySourceRow = new Map<number, string>();
+    for (const row of existingRows ?? []) {
+      if (typeof row.source_row === 'number') {
+        existingBySourceRow.set(row.source_row, row.id);
+      }
+    }
+
+    const rowsToInsert: typeof parsed.assets = [];
+    const rowsToUpdate: Array<{ id: string; asset: (typeof parsed.assets)[number] }> = [];
+
+    for (const asset of parsed.assets) {
+      const existingId = existingBySourceRow.get(asset.source_row);
+      if (existingId) {
+        rowsToUpdate.push({ id: existingId, asset });
+      } else {
+        rowsToInsert.push(asset);
+      }
+    }
+
+    const chunkSize = 300;
+    for (let index = 0; index < rowsToInsert.length; index += chunkSize) {
+      const { error } = await supabase
+        .from('inventory_assets')
+        .insert(rowsToInsert.slice(index, index + chunkSize));
+
+      if (error) {
+        throw new Error(`Inventory import failed: ${error.message}`);
+      }
+    }
+
+    // Updates are intentionally explicit rather than upserts, so no unique or
+    // exclusion constraint is required. Re-imports are uncommon and this keeps the
+    // initial pilot safe and predictable.
+    for (const row of rowsToUpdate) {
+      const { error } = await supabase
+        .from('inventory_assets')
+        .update(row.asset)
+        .eq('id', row.id)
+        .eq('audit_session_id', auditSessionId);
+
+      if (error) {
+        throw new Error(
+          `Inventory row ${row.asset.source_row} could not be updated: ${error.message}`,
+        );
+      }
+    }
 
   return {
     imported: parsed.assets.length,
