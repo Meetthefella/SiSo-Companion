@@ -52,17 +52,41 @@ async function loadSessions() {
   else currentSession = latestOpen;
   if (currentSession) localStorage.setItem('siso-session', currentSession.id); else localStorage.removeItem('siso-session');
 }
+
+async function loadAllKitCatalogRows(auditSessionId: string): Promise<KitCatalogEntry[]> {
+  const pageSize = 1000;
+  const rows: KitCatalogEntry[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from('kit_catalog')
+      .select('*')
+      .eq('audit_session_id', auditSessionId)
+      .order('kit_barcode', { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+
+    rows.push(...(data ?? []));
+
+    if (!data || data.length < pageSize) break;
+  }
+
+  return rows;
+}
+
 async function loadSessionData() {
   if (!currentSession) { assets = []; results = []; bulkCounts = []; bookingRows = []; kitCatalog = []; kitChecks = []; return; } const [a, r, b, m, c, k] = await Promise.all([
     supabase.from('inventory_assets').select('*').eq('audit_session_id', currentSession.id).order('source_row'),
     supabase.from('audit_results').select('*').eq('audit_session_id', currentSession.id),
     supabase.from('bulk_counts').select('*').eq('audit_session_id', currentSession.id).order('created_at', { ascending: false }),
     supabase.from('manage_booking_rows').select('*').eq('audit_session_id', currentSession.id),
-    supabase.from('kit_catalog').select('*').eq('audit_session_id', currentSession.id).order('kit_group').order('kit_code'),
+    loadAllKitCatalogRows(currentSession.id),
     supabase.from('kit_checks').select('*').eq('audit_session_id', currentSession.id)
   ]);
-  for (const x of [a, r, b, m, c, k]) if (x.error) throw x.error;
-  assets = a.data ?? []; results = r.data ?? []; bulkCounts = b.data ?? []; bookingRows = m.data ?? []; kitCatalog = c.data ?? []; kitChecks = k.data ?? [];
+  for (const x of [a, r, b, m, k]) if (x.error) throw x.error;
+  assets = a.data ?? []; results = r.data ?? []; bulkCounts = b.data ?? []; bookingRows = m.data ?? []; kitCatalog = c; kitChecks = k.data ?? [];
   loadStoredStockDiagnostics();
   const groups = [...new Set(uniqueKits().map(k => k.group))]; if (!selectedKitGroup && groups.length) selectedKitGroup = groups[0]!;
 }
