@@ -38,13 +38,11 @@ export async function importManageBookingsCsv(file: File, auditSessionId: string
   }).filter(Boolean) as Record<string, unknown>[];
 
   const skippedNoBarcode = rows.length - records.length;
-  const { error: clearError } = await supabase.from('manage_booking_rows').delete().eq('audit_session_id', auditSessionId);
-  if (clearError) throw clearError;
-
-  for (let i = 0; i < records.length; i += 250) {
-    const { error } = await supabase.from('manage_booking_rows').insert(records.slice(i, i + 250));
-    if (error) throw error;
-  }
+  const { error } = await supabase.rpc('replace_manage_booking_snapshot', {
+    p_audit_session_id: auditSessionId,
+    p_rows: records,
+  });
+  if (error) throw error;
 
   return { imported: records.length, uniqueBarcodes: new Set(records.map(r => r.asset_barcode as string)).size, skippedNoBarcode };
 }

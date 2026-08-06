@@ -202,6 +202,15 @@ export async function importInventoryCsv(
 ): Promise<ImportReport> {
   const parsed = await parseInventoryCsv(file, auditSessionId);
 
+    const { data: session, error: sessionError } = await supabase
+      .from('audit_sessions')
+      .select('status,stock_imported_at')
+      .eq('id', auditSessionId)
+      .single();
+    if (sessionError) throw sessionError;
+    if (session.status !== 'open') throw new Error('Archived reconciliations are read-only.');
+    if (session.stock_imported_at) throw new Error('Stock scope is already fixed for this reconciliation. Create a new reconciliation to import a new Stock.csv.');
+
     const { error: clearKitError } = await supabase
       .from('kit_catalog')
       .delete()
@@ -270,6 +279,13 @@ export async function importInventoryCsv(
         );
       }
     }
+
+  const { error: lockError } = await supabase
+    .from('audit_sessions')
+    .update({ stock_imported_at: new Date().toISOString() })
+    .eq('id', auditSessionId)
+    .is('stock_imported_at', null);
+  if (lockError) throw new Error(`Stock imported but scope could not be locked: ${lockError.message}`);
 
   return {
     imported: parsed.assets.length,

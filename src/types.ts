@@ -11,6 +11,10 @@ export interface AuditSession {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  lead_user_id: string | null;
+  stock_imported_at: string | null;
+  bookings_imported_at: string | null;
+  archived_at: string | null;
 }
 
 export interface InventoryAsset {
