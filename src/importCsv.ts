@@ -201,91 +201,16 @@ export async function importInventoryCsv(
   auditSessionId: string,
 ): Promise<ImportReport> {
   const parsed = await parseInventoryCsv(file, auditSessionId);
+  if (!parsed.operationalKits.length) {
+    throw new Error('No valid bookable BMS barcodes were found. Stock scope has not been locked; choose the correct Stock.csv and try again.');
+  }
 
-    const { data: session, error: sessionError } = await supabase
-      .from('audit_sessions')
-      .select('status,stock_imported_at')
-      .eq('id', auditSessionId)
-      .single();
-    if (sessionError) throw sessionError;
-    if (session.status !== 'open') throw new Error('Archived reconciliations are read-only.');
-    if (session.stock_imported_at) throw new Error('Stock scope is already fixed for this reconciliation. Create a new reconciliation to import a new Stock.csv.');
-
-    const { error: clearKitError } = await supabase
-      .from('kit_catalog')
-      .delete()
-      .eq('audit_session_id', auditSessionId);
-    if (clearKitError) throw new Error(`Could not refresh operational kit catalogue: ${clearKitError.message}`);
-
-    for (let index = 0; index < parsed.operationalKits.length; index += 300) {
-      const { error } = await supabase
-        .from('kit_catalog')
-        .insert(parsed.operationalKits.slice(index, index + 300));
-      if (error) throw new Error(`Operational kit catalogue import failed: ${error.message}`);
-    }
-
-    const { data: existingRows, error: existingError } = await supabase
-      .from('inventory_assets')
-      .select('id,source_row')
-      .eq('audit_session_id', auditSessionId);
-
-    if (existingError) {
-      throw new Error(`Could not inspect existing inventory: ${existingError.message}`);
-    }
-
-    const existingBySourceRow = new Map<number, string>();
-    for (const row of existingRows ?? []) {
-      if (typeof row.source_row === 'number') {
-        existingBySourceRow.set(row.source_row, row.id);
-      }
-    }
-
-    const rowsToInsert: typeof parsed.assets = [];
-    const rowsToUpdate: Array<{ id: string; asset: (typeof parsed.assets)[number] }> = [];
-
-    for (const asset of parsed.assets) {
-      const existingId = existingBySourceRow.get(asset.source_row);
-      if (existingId) {
-        rowsToUpdate.push({ id: existingId, asset });
-      } else {
-        rowsToInsert.push(asset);
-      }
-    }
-
-    const chunkSize = 300;
-    for (let index = 0; index < rowsToInsert.length; index += chunkSize) {
-      const { error } = await supabase
-        .from('inventory_assets')
-        .insert(rowsToInsert.slice(index, index + chunkSize));
-
-      if (error) {
-        throw new Error(`Inventory import failed: ${error.message}`);
-      }
-    }
-
-    // Updates are intentionally explicit rather than upserts, so no unique or
-    // exclusion constraint is required. Re-imports are uncommon and this keeps the
-    // initial pilot safe and predictable.
-    for (const row of rowsToUpdate) {
-      const { error } = await supabase
-        .from('inventory_assets')
-        .update(row.asset)
-        .eq('id', row.id)
-        .eq('audit_session_id', auditSessionId);
-
-      if (error) {
-        throw new Error(
-          `Inventory row ${row.asset.source_row} could not be updated: ${error.message}`,
-        );
-      }
-    }
-
-  const { error: lockError } = await supabase
-    .from('audit_sessions')
-    .update({ stock_imported_at: new Date().toISOString() })
-    .eq('id', auditSessionId)
-    .is('stock_imported_at', null);
-  if (lockError) throw new Error(`Stock imported but scope could not be locked: ${lockError.message}`);
+  const { error } = await supabase.rpc('import_stock_snapshot', {
+    p_audit_session_id: auditSessionId,
+    p_assets: parsed.assets,
+    p_kits: parsed.operationalKits,
+  });
+  if (error) throw new Error(`Stock import failed: ${error.message}`);
 
   return {
     imported: parsed.assets.length,
