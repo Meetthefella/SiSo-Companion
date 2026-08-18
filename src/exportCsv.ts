@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import type { AuditResult, BulkCount, InventoryAsset } from './types';
+import type { BulkCount } from './types';
 
 export function downloadCsv(filename: string, rows: Record<string, unknown>[]): void {
   const csv = Papa.unparse(rows);
@@ -10,27 +10,6 @@ export function downloadCsv(filename: string, rows: Record<string, unknown>[]): 
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-export function augmentedRows(assets: InventoryAsset[], results: AuditResult[]): Record<string, unknown>[] {
-  const resultByAsset = new Map(results.map((r) => [r.inventory_asset_id, r]));
-  return assets.map((asset) => {
-    const result = resultByAsset.get(asset.id);
-    return {
-      ...asset.original_row,
-      'Companion Audit Status': result?.queue_status ?? 'not_checked',
-      'Companion Audit Stage': result?.audit_stage ?? 'first_pass',
-      'Companion Reconciliation': result?.outcome ?? '',
-      'Companion Exception Reason': result?.exception_reason ?? '',
-      'Companion Next Action': result?.next_action ?? '',
-      'Companion QR Label Required': result?.label_required ? 'Yes' : 'No',
-      'Companion Label Method': result?.label_method ?? asset.label_method ?? '',
-      'Companion QR Label Status': asset.label_status ?? '',
-      'Companion Correct Kit': asset.bag_label ?? '',
-      'Companion Verified By': result?.verified_by ?? '',
-      'Companion Verified At': result?.verified_at ?? '',
-    };
-  });
 }
 
 export function bulkBarcodeRows(counts: BulkCount[]): Record<string, unknown>[] {

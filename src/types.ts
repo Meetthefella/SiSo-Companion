@@ -16,6 +16,7 @@ export interface AuditSession {
   stock_imported_at: string | null;
   bookings_imported_at: string | null;
   booking_revision: number;
+  ignored_groups_revision: number;
   archived_at: string | null;
 }
 
@@ -138,4 +139,11 @@ export interface KitCatalogEntry {
   original_row: Record<string, string>;
   created_at: string;
   updated_at: string;
+}
+
+export interface IgnoredKitGroup {
+  audit_session_id: string;
+  kit_group: string;
+  ignored_by: string;
+  ignored_at: string;
 }
