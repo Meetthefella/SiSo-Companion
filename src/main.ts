@@ -215,7 +215,47 @@ function bindEvents() {
     status.textContent = lastDebugError;
   }
 });
-      document.querySelector('#import-bookings')?.addEventListener('click', async () => { const file = document.querySelector<HTMLInputElement>('#bookings-file')?.files?.[0], status = document.querySelector<HTMLDivElement>('#bookings-status'); if (!file || !currentSession || !status || isReadOnly() || !currentSession.stock_imported_at) return; status.classList.remove('hidden'); status.textContent = 'Importing current bookings…'; try { const r = await importManageBookingsCsv(file, currentSession.id); await loadSessionData(); await recalculateKitChecks(); status.textContent = `Imported ${r.imported} booking rows covering ${r.uniqueBarcodes} assets.`; await refresh(); } catch (e) { lastDebugError = e instanceof Error ? e.message : String(e); status.textContent = lastDebugError; } });
+      document.querySelector('#import-bookings')?.addEventListener('click', async () => {
+  const file = document.querySelector<HTMLInputElement>('#bookings-file')?.files?.[0];
+  const status = document.querySelector<HTMLDivElement>('#bookings-status');
+
+  if (
+    !file ||
+    !currentSession ||
+    !status ||
+    isReadOnly() ||
+    !currentSession.stock_imported_at
+  ) return;
+
+  status.classList.remove('hidden');
+  status.textContent = 'Importing current bookings…';
+
+  try {
+    const r = await importManageBookingsCsv(file, currentSession.id);
+
+    await loadSessionData();
+    await recalculateKitChecks();
+
+    status.textContent =
+      `Imported ${r.imported} booking rows covering ` +
+      `${r.uniqueBarcodes} assets.`;
+
+    await refresh();
+  } catch (e) {
+    const message =
+      e instanceof Error
+        ? e.message
+        : typeof e === 'object' && e !== null && 'message' in e
+          ? String((e as { message: unknown }).message)
+          : JSON.stringify(e);
+
+    lastDebugError = message;
+    status.textContent = message;
+
+    console.error('Manage Bookings refresh failed:', e);
+  }
+});
+
       document.querySelectorAll<HTMLButtonElement>('[data-kit-filter]').forEach(b => b.addEventListener('click', () => { kitStatusFilter = b.dataset.kitFilter as KitBoardFilter; render(); }));
       document.querySelectorAll<HTMLButtonElement>('[data-kit]').forEach(b => b.addEventListener('click', () => { const code = b.dataset.kit!, prior = kitChecks.find(k => k.kit_barcode === code); if (prior) { selectedKitBarcode = code; } else { selectedPresentKits.has(code) ? selectedPresentKits.delete(code) : selectedPresentKits.add(code); } render(); }));
       document.querySelectorAll<HTMLButtonElement>('[data-reconcile-group]').forEach(b => b.addEventListener('click', () => reconcileKitGroup(b.dataset.reconcileGroup ?? '')));
