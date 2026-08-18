@@ -1,0 +1,42 @@
+functionsDirectory = "C:\\Users\\a_daveg\\Documents\\GitHub\\SiSo-Companion\\netlify\\functions"
+functionsDirectoryOrigin = "ui"
+redirectsOrigin = "config"
+plugins = []
+headers = []
+
+[functions]
+
+[functions."*"]
+
+[build]
+publish = "C:\\Users\\a_daveg\\Documents\\GitHub\\SiSo-Companion\\dist"
+publishOrigin = "config"
+commandOrigin = "config"
+command = "npm run build"
+functions = "C:\\Users\\a_daveg\\Documents\\GitHub\\SiSo-Companion\\netlify\\functions"
+
+[build.environment]
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]
