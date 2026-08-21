@@ -71,3 +71,7 @@ The Stock import now records operational kit barcode families independently of S
 - Items without serial numbers still appear when they have a valid barcode.
 - On each fresh phone/PWA launch, the newest open reconciliation is selected automatically. A reconciliation explicitly selected during the current launch remains selected during realtime refreshes.
 - No Supabase migration is required for v0.2.7. Re-import `Stock.csv` once to rebuild the catalogue.
+
+## Concurrent reconciliation refreshes
+
+Run `supabase/migrations/010_coordinated_reconciliation_progress.sql` through `supabase/migrations/014_set_based_kit_recalculation.sql` in order before deploying this build. They make kit-family reconcile/reset and Booking refresh actions atomic, while coalescing connected-device refreshes and safely supporting already-open older clients.

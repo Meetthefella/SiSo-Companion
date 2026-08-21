@@ -17,6 +17,8 @@ export interface AuditSession {
   bookings_imported_at: string | null;
   booking_revision: number;
   ignored_groups_revision: number;
+  progress_revision: number;
+  progress_updated_by: string | null;
   archived_at: string | null;
 }
 
